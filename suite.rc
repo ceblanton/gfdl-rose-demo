@@ -1,0 +1,37 @@
+[cylc]
+# non task-specific suite config
+
+[scheduling]
+# determines when tasks are ready to run
+# the dependency graph, which defines relationship among tasks
+    [[dependencies]]
+        graph = "checkout => compile"
+
+[runtime]
+# determines how, where, and what to execute when tasks are ready
+# script, environment, job submission, remote hosting, etc
+# suite-wide defaults in the root namespace
+# a nested family hierarchy with common properties inherited by related tasks
+    [[root]]
+        env-script = eval $(rose task-env)
+        script = rose task-run --verbose
+        [[[job]]]
+            execution time limit = PT3H
+        [[[events]]]
+            mail events = submission timeout, execution timeout, failed
+            mail to = {{MAIL_TO}}
+            submission timeout = P1D
+        [[[environment]]]
+    [[checkout]]
+        [[[job]]]
+            batch system = slurm
+            submission polling intervals = PT10S
+            execution polling intervals = PT10S, PT1M
+        [[[directives]]]
+            --nodes=1
+        [[[remote]]]
+            host = gaea.rdhpcs.princeton.noaa.gov
+            owner = {{REMOTE_USER}}
+
+[visualization]
+# suite graph styling
