@@ -5,7 +5,11 @@
 # determines when tasks are ready to run
 # the dependency graph, which defines relationship among tasks
     [[dependencies]]
-        graph = "checkout => compile"
+        graph = """
+            checkout => compile => regression-run
+            regression-run => production-run
+            regression-run => combine => transfer
+            production-run => combine => transfer => start-postprocessing"""
 
 [runtime]
 # determines how, where, and what to execute when tasks are ready
@@ -13,7 +17,11 @@
 # suite-wide defaults in the root namespace
 # a nested family hierarchy with common properties inherited by related tasks
     [[root]]
-        env-script = eval $(rose task-env)
+        env-script = """
+            . $MODULESHOME/init/bash
+            module use -a /ncrc/home1/Chris.Blanton/git/fre/modulefiles
+            module load rose
+            eval $(rose task-env)"""
         script = rose task-run --verbose
         [[[job]]]
             execution time limit = PT3H
@@ -25,13 +33,10 @@
     [[checkout]]
         [[[job]]]
             batch system = slurm
-            submission polling intervals = PT10S
-            execution polling intervals = PT10S, PT1M
+            submission polling intervals = PT5S
+            execution polling intervals = PT5S, PT10S
         [[[directives]]]
             --nodes=1
-        [[[remote]]]
-            host = gaea.rdhpcs.princeton.noaa.gov
-            owner = {{REMOTE_USER}}
 
 [visualization]
 # suite graph styling
