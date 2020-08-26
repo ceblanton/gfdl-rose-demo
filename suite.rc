@@ -8,8 +8,8 @@
         graph = """
             checkout => compile => regression-run
             regression-run => production-run
-            regression-run => combine => transfer
-            production-run => combine => transfer => start-postprocessing"""
+            regression-run => combine-regression => transfer-regression
+            production-run => combine-production => transfer-production => start-postprocessing"""
 
 [runtime]
 # determines how, where, and what to execute when tasks are ready
