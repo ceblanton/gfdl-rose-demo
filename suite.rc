@@ -37,6 +37,14 @@
             execution polling intervals = PT5S, PT10S
         [[[directives]]]
             --nodes=1
+    [[compile]]
+    [[run-regression]]
+    [[combine-regression]]
+    [[transfer-regression]]
+    [[run-production]]
+    [[combine-production]]
+    [[transfer-production]]
+    [[start-postprocessing]]
 
 [visualization]
 # suite graph styling
