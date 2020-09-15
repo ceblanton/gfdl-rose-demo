@@ -1,0 +1,40 @@
+#!/usr/bin/env csh
+set echo
+
+echo Using source directory = `pwd`
+
+alias config rose config --file `dirname $0`/../rose-app.conf
+
+foreach comp ( `config --keys | grep -v command | grep -v defaults` )
+    if ( { config -q $comp root } ) then
+        set root = `config $comp root`
+    else if ( { config -q defaults root } ) then
+        set root = `config defaults root`
+    else
+        echo ERROR: Could not determine code base for component "$comp"
+        exit 1
+    endif
+
+    if ( { config -q $comp version } ) then
+        set version = `config $comp version`
+    else if ( { config -q defaults version } ) then
+        set version = `config defaults version`
+    else
+        echo ERROR: Could not determine version for component "$comp"
+        exit 1
+    endif
+
+    foreach source ( `config $comp source` )
+        echo Cloning $root/$source on branch/tag $version
+    	git clone -q --recursive -b $version $root/$source
+        if ( $? != 0 ) then
+            echo ERROR: git checkout failed for component "$comp"
+            exit 1
+        endif
+    end
+
+    if ( { config -q $comp sh } ) then
+        set sh = `config $comp sh`
+        eval $sh
+    endif
+end
