@@ -1,6 +1,9 @@
 #!/usr/bin/env csh
 set echo
 
+cd $CYLC_SUITE_SHARE_DIR
+mkdir src
+cd src
 echo Using source directory = `pwd`
 
 alias config rose config --file `dirname $0`/../rose-app.conf

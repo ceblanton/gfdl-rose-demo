@@ -6,7 +6,7 @@
 # the dependency graph, which defines relationship among tasks
     [[dependencies]]
         graph = """
-            checkout => compile => run-regression
+            checkout-model => compile-model-1 => compile-model-2 => run-regression
             run-regression => run-production
             run-regression => combine-regression => transfer-regression
             run-production => combine-production => transfer-production => start-postprocessing"""
@@ -24,20 +24,22 @@
             eval $(rose task-env)"""
         script = rose task-run --verbose
         [[[job]]]
+            submission polling intervals = PT5S
+            execution polling intervals = PT5S, PT10S
             execution time limit = PT3H
         [[[events]]]
             mail events = submission timeout, execution timeout, failed
             mail to = {{MAIL_TO}}
             submission timeout = P1D
         [[[environment]]]
-    [[checkout]]
+    [[checkout-model]]
         [[[job]]]
             batch system = slurm
-            submission polling intervals = PT5S
-            execution polling intervals = PT5S, PT10S
+            execution time limit = PT30M
         [[[directives]]]
             --nodes=1
-    [[compile]]
+    [[compile-model-1]]
+    [[compile-model-2]]
     [[run-regression]]
     [[combine-regression]]
     [[transfer-regression]]
