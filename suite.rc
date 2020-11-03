@@ -6,10 +6,9 @@
 # the dependency graph, which defines relationship among tasks
     [[dependencies]]
         graph = """
-            checkout-model => compile-model-1 => compile-model-2 => run-regression
-            run-regression => run-production
-            run-regression => combine-regression => transfer-regression
-            run-production => combine-production => transfer-production => start-postprocessing"""
+            checkout-model => create-main-makefile => create-component-makefiles => compile-model
+            compile-model => run-regression
+            run-regression => combine-regression => transfer-regression"""
 
 [runtime]
 # determines how, where, and what to execute when tasks are ready
@@ -38,15 +37,12 @@
             execution time limit = PT30M
         [[[directives]]]
             --nodes=1
-    [[compile-model-1]]
-    [[compile-model-2]]
+    [[create-main-makefile]]
+    [[create-component-makefiles]]
+    [[compile-model]]
     [[run-regression]]
     [[combine-regression]]
     [[transfer-regression]]
-    [[run-production]]
-    [[combine-production]]
-    [[transfer-production]]
-    [[start-postprocessing]]
 
 [visualization]
 # suite graph styling
