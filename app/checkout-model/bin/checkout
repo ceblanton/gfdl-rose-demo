@@ -3,6 +3,11 @@ set echo
 
 cd $CYLC_SUITE_SHARE_DIR
 mkdir src
+if ($status) then
+    echo "Appears to be checkout already, so skipping for now"
+    echo "Instead of skipping, we should verify the source directories are clean"
+    exit 0
+endif
 cd src
 echo Using source directory = `pwd`
 
