@@ -1,0 +1,334 @@
+#!/usr/bin/env perl
+#use strict;
+#use warnings FATAL => 'all';
+use FindBin();
+
+    sub processCompileScriptCreate($$%)
+
+        # ------ arguments: $exp $refToHash %options
+    {
+
+        my ( $z, $r, %o ) = @_;
+        my ( $expName, $srcDir, $execDir, $ptmpDir)
+            = ( $ENV{expName}, $ENV{srcDir}, $ENV{bldDir}, $ENV{ptmpDir} );
+        print "DEBUG: srcDir=$srcDir\n";
+        my $baseCsh      = $ENV{baseCsh};
+        my $mkmfTemplate = $ENV{mkmfTemplate};
+
+        #use Data::Dumper;
+        #print Dumper $r;
+
+        # ------------------------------------------- deduce make overrides
+
+        my ( $target, $makeOverrides );
+        $makeOverrides .= ' REPRO=on'  if $ENV{flagRepro};
+        $makeOverrides .= ' DEBUG=on'  if $ENV{flagDebug};
+        $makeOverrides .= ' OPENMP=on' if $ENV{flagOpenMP};
+
+        if ( $ENV{flagHDF} ) {
+            $makeOverrides .= ' NETCDF=4';
+        }
+        else {
+            $makeOverrides .= ' NETCDF=3';
+        }
+
+        # --------------------------------- create a global list of include directories
+
+        my %includeDirs = ();
+
+        if ( -d $srcDir ) {
+            my $defaultIncludeDirs = qx(find $srcDir -type d -name include);
+            foreach my $dir ( split( "\n", $defaultIncludeDirs ) ) {
+                $includeDirs{$dir} = 1 if $dir;
+            }
+        }
+
+        foreach my $name ( keys %{$r} ) {
+            my $ref = $r->{$name};
+            if ($ref->{includeDirs}) {
+            foreach my $dir ( split( ' ', $ref->{includeDirs} ) ) {
+                $includeDirs{$dir} = 1 if $dir;
+            }
+            }
+        }
+
+        #    my $includeDirsList = join(' ', map {s/^$srcDir\///; $_} sort keys %includeDirs);
+        my $includeDirsList = join( ' ', map { s/^$srcDir\///; '-I' . $_ } sort keys %includeDirs );
+
+    # ---------------------------------------------- create a list of libraries in the linking order
+
+        my %libs = ();
+
+        foreach my $name ( keys %{$r} ) {
+            my $ref = $r->{$name};
+            if ( $ref->{libPath} ) {
+                print "Using library '$ref->{libPath}'...\n";
+                $libs{ $ref->{libPath} } = $ref->{rank};
+            }
+            else {
+                $libs{"$name/lib$name.a"} = $ref->{rank};
+            }
+        }
+
+        my $libList = join( ' ', sort { $libs{$b} <=> $libs{$a} } keys %libs );
+
+# -------------------------------------------------- create a list of component names in the XML order
+
+        my @names = sort { $r->{$a}{lineNumber} <=> $r->{$b}{lineNumber} } keys %{$r};
+
+# --------------------------------------------------------------------------- create the master Makefile
+
+        my ( $Makefile, $tab ) = ( '', "\t" );
+        $Makefile .= "# Makefile for Experiment '$expName'\n\n";
+        $Makefile .= "SRCROOT = \$src_dir/\n";
+        $Makefile .= "BUILDROOT = \$bld_dir/\n";
+        $Makefile .= "STAGEDIR = \$ptmp_dir/\$bld_dir/\n\n";
+        $Makefile .= "MK_TEMPLATE = \$mkmf_template\n";
+        $Makefile .= "include \\\$(MK_TEMPLATE)\n\n";
+        $Makefile .= "fms_$expName.x: $libList\n";
+        $Makefile .= "${tab}\\\$(LD) \\\$\^ \\\$(LDFLAGS) -o \\\$\@ \\\$(STATIC_LIBS)\n"
+            if $o{link};
+        $Makefile .= "\n";
+
+        foreach my $name (@names) {
+            my $ref = $r->{$name};
+            unless ( $ref->{libPath} ) {
+                my %requiredLibs = ();
+                if ($ref->{requires}) {
+                foreach my $required ( split( ' ', $ref->{requires} ) ) {
+                    my $refRequired = $r->{$required};
+                    if ( $refRequired->{libPath} ) {
+                        $requiredLibs{ $refRequired->{libPath} } = $refRequired->{rank};
+                    }
+                    else {
+                        $requiredLibs{"$required/lib$required.a"} = $refRequired->{rank};
+                    }
+                }
+                }
+                $Makefile
+                    .= "$name/lib$name.a: "
+                    . join( ' ',
+                    sort { $requiredLibs{$b} <=> $requiredLibs{$a} } keys %requiredLibs )
+                    . " FORCE\n";
+                $Makefile
+                    .= "${tab}\\\$(MAKE) SRCROOT=\\\$(SRCROOT) BUILDROOT=\\\$(BUILDROOT) MK_TEMPLATE=\\\$(MK_TEMPLATE) $ref->{makeOverrides} --directory=$name \\\$(\@F) \n\n";
+            }
+        } ## end foreach my $name (@names)
+
+        $Makefile .= "FORCE:\n\n";
+
+        $Makefile .= "stage:\n";
+        $Makefile .= "${tab}install -d \\\$(STAGEDIR)\n";
+        $Makefile .= "${tab}install -m 555 fms_$expName.x \\\$(STAGEDIR)\n\n";
+
+        $Makefile .= "clean:\n";
+        foreach my $name (@names) {
+            my $ref = $r->{$name};
+            $Makefile .= "${tab}\\\$(MAKE) --directory=$name clean\n";
+        }
+        $Makefile .= "\n";
+
+        $Makefile .= "localize:\n";
+        foreach my $name (@names) {
+            my $ref = $r->{$name};
+            $Makefile .= "${tab}\\\$(MAKE) -f \\\$(BUILDROOT)$name/Makefile localize\n";
+        }
+        $Makefile .= "\n";
+
+        $Makefile .= "distclean:\n";
+        foreach my $name (@names) {
+            my $ref = $r->{$name};
+            $Makefile .= "${tab}\\\$(RM) -r $name\n";
+        }
+        $Makefile .= "${tab}\\\$(RM) fms_$expName.x\n";
+        $Makefile .= "${tab}\\\$(RM) Makefile\n";
+
+# ---------------------------------------------------------------------------------------- get FRE parameters
+
+        my $freCommandsHomeDir = $ENV{freCommandsHomeDir};
+        my $jobs               = $ENV{parallelJobs};
+        my $modulesHomeDir     = $ENV{modulesHomeDir};
+
+# ------------------------------------------------------------------- create the environment setting script
+
+        my $envScript = '';
+
+        $envScript .= "# Platform-Specific Environment Setting File\n";
+        $envScript
+            .= "# ------------------------------------------------------------------------------\n";
+        $envScript .= "#FRE version-info\n";
+        $envScript
+            .= "# ------------------------------------------------------------------------------\n\n";
+
+        $envScript .= "setenv MAKEFLAGS --jobs=$jobs\n\n";
+
+        $envScript .= "source $modulesHomeDir/init/tcsh\n";
+        $envScript .= "$baseCsh\n";
+
+        $envScript .= "limit stacksize unlimited\n\n";
+
+        $envScript .= "module list\n";
+
+        $envScript .= "setenv PATH $freCommandsHomeDir/bin:\$PATH\n\n";
+        $envScript .= "#FRE scheduler-make-verbose\n";
+
+# -------------------------------------------------------------------------- create the compile script
+
+        my $cmpScript     = '';
+        my $envScriptName = $ENV{envScriptName};
+        $envScriptName =~ s/$execDir/\$bld_dir/;
+
+        $cmpScript .= "#!/bin/tcsh -fx\n";
+        $cmpScript .= "#FRE scheduler-options\n\n";
+        $cmpScript .= "# Compile Script for Experiment '$expName'\n";
+        $cmpScript
+            .= "# ------------------------------------------------------------------------------\n";
+        $cmpScript .= "#FRE version-info\n";
+        $cmpScript
+            .= "# ------------------------------------------------------------------------------\n\n";
+
+        $cmpScript .= "set -r echoOn = \$?echo\n\n";
+        $cmpScript .= "if ( \$echoOn ) unset echo\n";
+        $cmpScript .= "echo \"<NOTE> : Starting at \$HOST on `date`\"\n";
+        $cmpScript .= "if ( \$echoOn ) set echo\n\n";
+        $cmpScript .= "unalias *\n\n";
+
+        $cmpScript .= "# ---------------- Set build, src and stage directories\n\n";
+        $cmpScript .= "set src_dir = $srcDir\n";
+        $cmpScript .= "set bld_dir = $execDir\n";
+        $cmpScript .= "set ptmp_dir = $ptmpDir\n\n";
+
+        $cmpScript .= "# ---------------- Make template\n\n";
+        $cmpScript .= "set mkmf_template = $mkmfTemplate\n\n";
+
+        $cmpScript .= "# ---------------- set environment\n\n";
+        $cmpScript .= sprintf "source %s/init/tcsh\n", $modulesHomeDir;
+        $cmpScript .= sprintf "module use %s\n", $ENV{freModulesHome};
+        $cmpScript .= "if ( \$echoOn ) unset echo\n";
+        $cmpScript .= "source $envScriptName\n";
+        $cmpScript .= "if ( \$echoOn ) set echo\n\n";
+
+        $cmpScript .= "# ---------------- write main Makefile\n\n";
+        $cmpScript .= "sed -e 's/<TAB>/\\t/' >\$bld_dir/Makefile <<END\n";
+        $cmpScript .= "$Makefile\n";
+        $cmpScript .= "END\n\n";
+
+        $cmpScript .= "# ---------------- create component Makefiles\n\n";
+
+        foreach my $name (@names) {
+            my $ref = $r->{$name};
+            unless ( $ref->{libPath} ) {
+                my %requiredDirs = ();
+                foreach my $required ( split( ' ', $ref->{requires} ) ) {
+                    my $refRequired = $r->{$required};
+                    if ( $refRequired->{libPath} ) {
+                        $requiredDirs{ $refRequired->{libHeaderDir} } = $refRequired->{rank};
+                    }
+                    else {
+                        $requiredDirs{"\$bld_dir/$required"} = $refRequired->{rank};
+                    }
+                }
+                my $otherFlags = join( ' ',
+                    map  { '-I' . $_ }
+                    sort { $requiredDirs{$b} <=> $requiredDirs{$a} } keys %requiredDirs );
+                my $pathNames = $ref->{pathNames} || "pathnames_$name";
+
+                #       $cmpScript .= "cd \$src_dir\n";
+                $cmpScript .= "mkdir -p \$bld_dir/$name\n";
+
+                # Generate list_paths command
+                $cmpScript .= "list_paths -l -o \$bld_dir/$name/$pathNames ";
+                my $paths_str = '';
+                foreach my $path ( split( /\s+/, $ref->{paths} ) ) {
+                    if ( $path =~ /^\// ) {
+                        $path =~ s/$srcDir/\$src_dir/;
+                        $paths_str .= "$path ";
+                    }
+                    else {
+                        $paths_str .= "\$src_dir/$path ";
+                    }
+                }
+                $cmpScript .= $paths_str;
+                $cmpScript .= "\n";
+
+                # Add compile csh section
+                $cmpScript .= "$ref->{compileCsh}\n" if $ref->{compileCsh};
+                $cmpScript .= "cd \$bld_dir\n";
+                $cmpScript .= "pushd $name\n";
+                $cmpScript
+                    .= "mkmf -m Makefile -a \$src_dir -b \$bld_dir -p lib$name.a -t \$mkmf_template";
+                $cmpScript .= " --use-cpp" if ( $ref->{doF90Cpp} );
+                $cmpScript .= " -c \"$ref->{cppDefs}\"" if $ref->{cppDefs};
+                $cmpScript .= " -o \"$otherFlags\""     if $otherFlags;
+                $cmpScript .= " $includeDirsList"       if $includeDirsList;
+                $cmpScript .= " $ref->{srcList}"        if $ref->{srcList};
+                $cmpScript .= " \$bld_dir/$name/$pathNames";
+                $cmpScript .= "\npopd\n\n";
+            } ## end unless ( $ref->{libPath} )
+        } ## end foreach my $name (@names)
+
+        $cmpScript .= "# ---------------- call make on the main Makefile\n\n";
+        $cmpScript .= "make $makeOverrides fms_$expName.x\n\n";
+        $cmpScript .= "if ( \$status == 0 ) then\n";
+        $cmpScript .= "  if ( \$?NiNaC_LVL ) then\n";
+        $cmpScript .= "    if ( \$NiNaC_LVL > 0 ) then\n";
+        $cmpScript .= "      # Run NiNaC\n";
+        $cmpScript .= "      \$NiNaC_BldRx \$src_dir \$bld_dir\n";
+        $cmpScript .= "      if ( \$status != 0 ) then\n";
+        $cmpScript .= "        if ( \$echoOn ) unset echo\n";
+        $cmpScript
+            .= "        echo \"NiNaC Note: While NiNaC loaded attempt at NiNaC_BldRx failed with exit status \$status : FRE continuing as normal.\"\n";
+        $cmpScript .= "        if ( \$echoOn ) set echo\n";
+        $cmpScript .= "      endif\n";
+        $cmpScript .= "    endif\n";
+        $cmpScript .= "  endif\n\n";
+        $cmpScript .= "  if ( \$echoOn ) unset echo\n";
+        $cmpScript .= "  echo \"<NOTE> : make succeeded for $expName.\"\n";
+        $cmpScript .= "  if ( \$echoOn ) set echo\n";
+        $cmpScript .= "else\n";
+        $cmpScript .= "  if ( \$echoOn ) unset echo\n";
+        $cmpScript .= "  echo \"*ERROR*: make failed for $expName.\"\n";
+        $cmpScript .= "  if ( \$echoOn ) set echo\n";
+        $cmpScript .= "  exit 1\n";
+        $cmpScript .= "endif\n\n";
+        $cmpScript .= "exit 0\n";
+
+        # ----------------------------------------------- normal return
+
+    }
+
+my %o;
+$o{link} = $ENV{flagLink} ? 1 : 0;
+
+my %info;
+my $config = "rose config --file $FindBin::Bin/../rose-app.conf";
+for my $comp (`$config --keys | grep -v command | grep -v env`) {
+    chomp $comp;
+    for my $key (`$config $comp --keys`) {
+        chomp $key;
+        my $value = `$config $comp $key`;
+        chomp $value;
+        #print "DEBUG: $comp, $key, and $value\n";
+        $info{$comp}{$key} = $value;
+    }
+}
+
+use Data::Dumper;
+print Dumper \%info;
+
+my %exp = (
+    name => 'quickstart',
+);
+
+my $bldDir = $ENV{bldDir};
+system "mkdir -p $bldDir";
+system "ls -al $bldDir";
+print "DEBUG: this dir exists? $bldDir\n";
+my ($comp_script, $env_script) = processCompileScriptCreate(\%exp, \%info, %o);
+open my $fh, '>', "$ENV{bldDir}/compile.csh";
+print $fh $comp_script;
+print "Saved compile script to $ENV{bldDir}/compile.csh\n";
+
+open $fh, ">", "$ENV{envScriptName}";
+print $fh $env_script;
+print "Saved env script to $ENV{envScriptName}\n";
