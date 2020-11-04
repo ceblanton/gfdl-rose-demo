@@ -1,6 +1,9 @@
 # template-repository
 Repository template for GFDL-NOAA organization
 
+# To edit suite with GUI
+rose edit
+
 # Start suite
 rose suite-run
 
