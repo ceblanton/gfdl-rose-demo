@@ -6,7 +6,7 @@
 # the dependency graph, which defines relationship among tasks
     [[dependencies]]
         graph = """
-            checkout-model => create-main-makefile => create-component-makefiles => compile-model
+            checkout-model => create-compile-script => compile-model
             compile-model => run-regression
             run-regression => combine-regression => transfer-regression"""
 
@@ -37,8 +37,7 @@
             execution time limit = PT30M
         [[[directives]]]
             --nodes=1
-    [[create-main-makefile]]
-    [[create-component-makefiles]]
+    [[create-compile-script]]
     [[compile-model]]
     [[run-regression]]
     [[combine-regression]]
