@@ -11,21 +11,17 @@ use FindBin();
         my ( $z, $r, %o ) = @_;
         my ( $expName, $srcDir, $execDir, $ptmpDir)
             = ( $ENV{expName}, $ENV{srcDir}, $ENV{bldDir}, $ENV{ptmpDir} );
-        print "DEBUG: srcDir=$srcDir\n";
-        my $baseCsh      = $ENV{baseCsh};
+        my $baseCsh      = $ENV{platformCsh};
         my $mkmfTemplate = $ENV{mkmfTemplate};
-
-        #use Data::Dumper;
-        #print Dumper $r;
 
         # ------------------------------------------- deduce make overrides
 
         my ( $target, $makeOverrides );
-        $makeOverrides .= ' REPRO=on'  if $ENV{flagRepro};
-        $makeOverrides .= ' DEBUG=on'  if $ENV{flagDebug};
-        $makeOverrides .= ' OPENMP=on' if $ENV{flagOpenMP};
+        $makeOverrides .= ' REPRO=on'  if $ENV{flagRepro} eq 'true';
+        $makeOverrides .= ' DEBUG=on'  if $ENV{flagDebug} eq 'true';
+        $makeOverrides .= ' OPENMP=on' if $ENV{flagOpenMP} eq 'true';
 
-        if ( $ENV{flagHDF} ) {
+        if ( $ENV{flagHDF} eq 'true') {
             $makeOverrides .= ' NETCDF=4';
         }
         else {
@@ -52,7 +48,6 @@ use FindBin();
             }
         }
 
-        #    my $includeDirsList = join(' ', map {s/^$srcDir\///; $_} sort keys %includeDirs);
         my $includeDirsList = join( ' ', map { s/^$srcDir\///; '-I' . $_ } sort keys %includeDirs );
 
     # ---------------------------------------------- create a list of libraries in the linking order
@@ -169,7 +164,7 @@ use FindBin();
 
         $envScript .= "module list\n";
 
-        $envScript .= "setenv PATH $freCommandsHomeDir/bin:\$PATH\n\n";
+        #$envScript .= "setenv PATH $freCommandsHomeDir/bin:\$PATH\n\n";
         $envScript .= "#FRE scheduler-make-verbose\n";
 
 # -------------------------------------------------------------------------- create the compile script
@@ -294,15 +289,16 @@ use FindBin();
         $cmpScript .= "exit 0\n";
 
         # ----------------------------------------------- normal return
+        return ($cmpScript, $envScript);
 
     }
 
 my %o;
-$o{link} = $ENV{flagLink} ? 1 : 0;
+$o{link} = ($ENV{flagLink} eq 'true') ? 1 : 0;
 
 my %info;
 my $config = "rose config --file $FindBin::Bin/../rose-app.conf";
-for my $comp (`$config --keys | grep -v command | grep -v env`) {
+for my $comp (`$config --keys | grep -v command | grep -v env | grep -v defaults | grep -v meta`) {
     chomp $comp;
     for my $key (`$config $comp --keys`) {
         chomp $key;
@@ -314,16 +310,22 @@ for my $comp (`$config --keys | grep -v command | grep -v env`) {
 }
 
 use Data::Dumper;
-print Dumper \%info;
+#print Dumper \%info;
 
 my %exp = (
-    name => 'quickstart',
+    name => $ENV{expName}
 );
 
 my $bldDir = $ENV{bldDir};
-system "mkdir -p $bldDir";
-system "ls -al $bldDir";
-print "DEBUG: this dir exists? $bldDir\n";
+if (-d $bldDir) {
+    print "Build directory $bldDir already exists\n";
+    system "ls -al $bldDir";
+}
+else {
+    print "Creating build directory $bldDir\n";
+    system "mkdir -p $bldDir";
+}
+
 my ($comp_script, $env_script) = processCompileScriptCreate(\%exp, \%info, %o);
 open my $fh, '>', "$ENV{bldDir}/compile.csh";
 print $fh $comp_script;
